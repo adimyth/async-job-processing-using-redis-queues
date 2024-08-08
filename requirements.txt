@@ -1,0 +1,10 @@
+rq
+sqlmodel
+sqlalchemy
+pydantic
+python-dotenv
+pydantic_settings
+loguru
+black
+isort
+fastapi
