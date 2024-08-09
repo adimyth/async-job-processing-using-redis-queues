@@ -1,13 +1,10 @@
+from contextlib import contextmanager
 from typing import Generator
-from urllib.parse import quote_plus
 
 from sqlalchemy import create_engine
-from sqlmodel import Session
+from sqlalchemy.orm import Session, sessionmaker
+
 from src.settings import settings
-
-# Encode the password
-encoded_password = quote_plus(settings.POSTGRES_DB_PASSWORD.get_secret_value())
-
 
 engine = create_engine(
     settings.DATABASE_URL,
@@ -16,14 +13,17 @@ engine = create_engine(
     max_overflow=0,
 )
 
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-def get_db(autocommit=False) -> Generator[Session, None, None]:
-    session = Session(engine, expire_on_commit=False, autocommit=autocommit)
+
+@contextmanager
+def get_db() -> Generator[Session, None, None]:
+    session = SessionLocal()
     try:
         yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
     finally:
         session.close()
-
-
-def get_session(autocommit=False) -> Session:
-    return next(get_db(autocommit))

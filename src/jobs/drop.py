@@ -5,17 +5,15 @@ from src.db.session import get_db
 from src.jobs.base import BaseJob
 
 
-class TruncateTable(BaseJob):
+class DropTable(BaseJob):
     def __init__(self, table: str, **kwargs):
         super().__init__(**kwargs)
         self.table = table
 
     def handle(self):
-        logger.info(f"Truncating table {self.table}")
+        logger.info(f"Dropping table {self.table}")
 
         with get_db() as session:
-            session.execute(
-                text(f"TRUNCATE TABLE {self.table} RESTART IDENTITY CASCADE;")
-            )
+            session.execute(text(f"DROP TABLE IF EXISTS {self.table};"))
 
-        logger.info(f"Table {self.table} truncated successfully")
+        logger.info(f"Table {self.table} dropped successfully")

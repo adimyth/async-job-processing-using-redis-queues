@@ -1,9 +1,7 @@
 services:
     api:
         build: .
-        command: uvicorn main:app --host 0.0.0.0
-        volumes:
-            - .:/app
+        container_name: api
         ports:
             - "8000:8000"
         depends_on:
@@ -15,33 +13,35 @@ services:
 
     worker:
         build: .
-        command: rq worker low medium high default
-        volumes:
-            - .:/app
+        container_name: worker
+        command: rq worker high medium low default --with-scheduler
         depends_on:
             - redis
             - db
         environment:
             - DATABASE_URL=postgresql://user:password@db/dbname
             - REDIS_URL=redis://redis:6379
+        restart: always
 
     scheduler:
         build: .
-        command: python scheduler.py
-        volumes:
-            - .:/app
+        container_name: scheduler
+        command: python -m src.scheduler
         depends_on:
             - redis
             - db
+            - api
         environment:
             - DATABASE_URL=postgresql://user:password@db/dbname
             - REDIS_URL=redis://redis:6379
 
     redis:
         image: "redis:alpine"
+        container_name: redis
 
     db:
-        image: "postgres:13"
+        image: "postgres:16"
+        container_name: db
         environment:
             - POSTGRES_USER=user
             - POSTGRES_PASSWORD=password

@@ -8,3 +8,7 @@ loguru
 black
 isort
 fastapi
+requests
+apscheduler
+uvicorn
+psycopg2-binary

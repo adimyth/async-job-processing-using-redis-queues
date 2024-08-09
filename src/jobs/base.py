@@ -1,81 +1,104 @@
+import json
+import traceback
+
+from loguru import logger
 from redis import Redis
-from rq import Queue, get_current_job
-from src.db.session import Session
-from src.models.model import JobStatus
-from sqlalchemy.orm import Session
+from rq import Queue, Retry, get_current_job
+from sqlalchemy import func
+from sqlalchemy.sql import select, update
+
+from src.db.session import get_db
+from src.models.model import Jobs
+from src.schemas.common import JobStatus
+from src.schemas.response import JobStatusResponse
+from src.settings import settings
 
 
 class BaseJob:
-    def __init__(self, session: Session):
+    # Use a class-level Redis connection
+    redis = Redis.from_url(settings.REDIS_URL)
+
+    def __init__(self, **kwargs):
         self.job = get_current_job()
-        self.redis = Redis()
-        self.session = session
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
-    def _update_status(self, status):
-        if self.job:
-            job_status = self.session.query(JobStatus).get(self.job.id)
-            if not job_status:
-                job_status = JobStatus(id=self.job.id)
-            job_status.status = status
-            job_status.retry_count += 1
-            self.session.add(job_status)
-            self.session.commit()
+    @classmethod
+    def update_job(cls, job_id, increment_retry_count=False, **kwargs):
+        with get_db() as session:
+            if increment_retry_count:
+                # Use SQL expression to increment retry_count
+                kwargs["retry_count"] = func.coalesce(Jobs.retry_count, 0) + 1
+            stmt = update(Jobs).where(Jobs.id == job_id).values(**kwargs)
+            session.execute(stmt)
 
-    def before_start(self):
-        self._update_status("started")
+    @classmethod
+    def perform(cls, *args, **kwargs):
+        # Fetch current job
+        job = get_current_job()
 
-    def after_success(self, result=None):
-        job_status = self.session.query(JobStatus).get(self.job.id)
-        job_status.status = "completed"
-        job_status.result = str(result)
-        self.session.commit()
+        if job:
+            logger.info(f"Executing job {job.id}, attempt {job.meta.get('attempt', 1)}")
+            # Job Started: update the status
+            cls.update_job(job.id, status=JobStatus.started)
+        else:
+            logger.warning("No current job context found")
 
-    def on_failure(self, exc_type, exc_value, traceback):
-        job_status = self.session.query(JobStatus).get(self.job.id)
-        job_status.status = "failed"
-        job_status.error = str(exc_value)
-        self.session.commit()
+        instance = cls(*args, **kwargs)
+        try:
+            # Run the job
+            result = instance.handle()
+            # Job completed: update status
+            cls.update_job(job.id, status=JobStatus.completed, result=str(result))
+            return result
+        except Exception as e:
+            tb = traceback.format_exc()
+            # Job failed: update status, error & traceback
+            # TODO: Set next_retry_count
+            cls.update_job(
+                job.id,
+                increment_retry_count=True,
+                status=JobStatus.failed,
+                error=str(e),
+                traceback=tb,
+            )
+            raise
 
-    def perform(self):
+    def handle(self):
         raise NotImplementedError("Subclasses must implement this method")
 
     @classmethod
-    def dispatch(cls, *args, **kwargs):
-        queue_name = kwargs.pop("queue", "default")
-        redis_conn = Redis()
-        queue = Queue(queue_name, connection=redis_conn)
-        job = queue.enqueue(
-            cls.perform,
-            args=args,
-            kwargs=kwargs,
-            # Set timeout to 5 minutes
-            timeout=300,
-            # Retry 3 times
-            retry=3,
-            # Exponential backoff: 1 minute, 5 minutes, 15 minutes
-            retry_intervals=[60, 300, 900],
+    def dispatch(cls, **kwargs):
+        queue_name = kwargs.pop("queue", settings.JOB_DEFAULT_QUEUE)
+        queue = Queue(queue_name, connection=cls.redis)
+
+        # set job timeout & retry with exponential backoff
+        retry = Retry(
+            max=settings.JOB_MAX_RETRIES, interval=settings.JOB_RETRY_INTERVAL
         )
 
-        session = Session()
-        job_status = JobStatus(id=job.id, status="queued")
-        session.add(job_status)
-        session.commit()
-        session.close()
+        # add job to queue
+        job = queue.enqueue(
+            cls.perform,
+            kwargs=kwargs,
+            timeout=settings.JOB_TIMEOUT,
+            retry=retry,
+        )
 
-        return job
+        # Job Queued: store status & payload
+        with get_db() as session:
+            new_job = Jobs(
+                id=job.id, status=JobStatus.queued, payload=json.dumps(kwargs)
+            )
+            session.add(new_job)
 
     @classmethod
     def get_job_status(cls, job_id):
-        session = Session()
-        job_status: JobStatus = session.query(JobStatus).get(job_id)
-        status_dict = {
-            "id": job_status.id,
-            "status": job_status.status,
-            "created_at": job_status.created_at,
-            "updated_at": job_status.updated_at,
-            "result": job_status.result,
-            "error": job_status.error,
-            "retry_count": job_status.retry_count,
-        }
-        session.close()
-        return status_dict
+        with get_db() as session:
+            stmt = select(Jobs).where(Jobs.id == job_id)
+            job = session.execute(stmt).scalar_one_or_none()
+
+            if not job:
+                return None
+
+            return JobStatusResponse(**job)
