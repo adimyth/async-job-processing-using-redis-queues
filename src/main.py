@@ -26,7 +26,7 @@ async def startup_event():
 
 
 @app.post("/create-jobs/")
-async def truncate_table():
+async def create_jobs():
     # high priority jobs
     PopulateRecords.dispatch(sql_path="users.sql", queue="high")
 
