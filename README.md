@@ -2,7 +2,7 @@
 
 ## Problem Statement
 
-In large-scale data processing and ETL (Extract, Transform, Load) workflows, organizations often face challenges with scheduling, executing, and monitoring complex database operations. These operations, such as truncating tables, running aggregations, or performing slow queries, need to be executed reliably on a recurring basis without interfering with the main application's performance. Additionally, there's a need for robust error handling, retry mechanisms, and clear visibility into the status and history of these operations. Traditional cron jobs or simple queuing systems often fall short in providing the necessary reliability, scalability, and observability for such critical data management tasks.
+In large-scale data processing and ETL (Extract, Transform, Load) workflows, organizations often face challenges with scheduling, executing, and monitoring complex database operations. These operations, such as truncating tables, running aggregations, or performing slow queries, need to be executed reliably on a recurring basis without interfering with the main application's performance.
 
 ## Expectations
 
