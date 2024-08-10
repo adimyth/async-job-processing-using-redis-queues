@@ -69,7 +69,8 @@ class BaseJob:
 
     @classmethod
     def dispatch(cls, **kwargs):
-        queue_name = kwargs.pop("queue", settings.JOB_DEFAULT_QUEUE)
+        # Get the queue name from the kwargs or use the default
+        queue_name = kwargs.get("queue", settings.JOB_DEFAULT_QUEUE)
         queue = Queue(queue_name, connection=cls.redis)
 
         # set job timeout & retry with exponential backoff
@@ -91,6 +92,7 @@ class BaseJob:
                 id=job.id, status=JobStatus.queued, payload=json.dumps(kwargs)
             )
             session.add(new_job)
+        return job
 
     @classmethod
     def get_job_status(cls, job_id):

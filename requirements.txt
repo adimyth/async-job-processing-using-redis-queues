@@ -12,3 +12,4 @@ requests
 apscheduler
 uvicorn
 psycopg2-binary
+click

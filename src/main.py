@@ -14,6 +14,7 @@ from src.jobs.slow_query import SlowQuery
 from src.jobs.truncate import TruncateTable
 from src.models.model import Jobs
 from src.schemas.response import JobStatusResponse
+from src.utils import recover_jobs
 
 app = FastAPI()
 
@@ -23,6 +24,9 @@ async def startup_event():
     # Run create_all in a separate thread to not block the event loop
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, Base.metadata.create_all, engine)
+
+    # Requeue jobs that were queued or started within the last 24 hours
+    recover_jobs()
 
 
 @app.post("/create-jobs/")

@@ -4,34 +4,68 @@
 
 In large-scale data processing and ETL (Extract, Transform, Load) workflows, organizations often face challenges with scheduling, executing, and monitoring complex database operations. These operations, such as truncating tables, running aggregations, or performing slow queries, need to be executed reliably on a recurring basis without interfering with the main application's performance.
 
-## Expectations
 
-1. Ability to queue jobs for asynchronous processing
-2. Efficient execution of jobs without impacting the main application
-3. Job status tracking and result retrieval
-4. Error handling and job retry mechanism
-5. Scalability to handle multiple workers and high job volumes
+## System Guarantees
+
+Our asynchronous job processing system provides the following guarantees:
+
+🚶‍♂️🚶‍♂️🚶‍♂️ **Job Queueing**: Ability to queue jobs for asynchronous processing without blocking the main application.
+
+🔴 🟡 🟢 **Queue Prioritisation**: Jobs can be assigned to differen queues & these queues can be prioritised. Ex - jobs in "queue=high" should be executed followed by "medium" & "low"
+
+👁️ **Job Status Tracking**: The status of each job (queued, started, completed, failed) is tracked and can be queried.
+
+🔢 **Multiple Reattempts**: A job can be reattempted multiple times with an exponential backoff strategy in case of failure. Currently, the system is configured to retry a job 3 times with increasing intervals between retries (1M, 5M, 15M).
+
+🛢️ **Result Persistence**: Job results or errors are stored in the database for debugging and analysis.
+
+📈 **Scalability**: The system can be easily scaled by adding more workers. Adding more workers is simple by just duplicating the instances of the `worker` service.
+
+🕓 **Job Scheduling**: Jobs can be scheduled to run at specific intervals using the scheduler. Have added a scheduler using APScheduler, which calls the `api` service to queue jobs.
+
+🤸🏻‍♂️ **Extensibility**: New job types can be easily added by creating subclasses of the `BaseJob` class. Refer to the `jobs` directory for couple of examples
+
+🧑‍💻 **Manual Intervention**: Ability to manually retry failed jobs or mark them as completed after fixing the underlying issue. Ex - you can retry a particular failed job or retry all failed jobs
+
+♻️ **Recoverability**: The system is designed to recover from system failures. Ex - in case of a system restart or redis crash, the jobs will be requeued on application restart.
+
+---
 
 ## Solution
 
-We've implemented an asynchronous job processing system using FastAPI, Redis, Redis Queue (RQ), and SQLAlchemy. This system allows for:
-
-- Queuing jobs from API endpoints
-- Processing jobs asynchronously using worker processes
-- Storing job statuses and results in a database
-- Implementing retry logic for failed jobs
-- Scaling by adding more worker processes
-
-## Implementation Details
-
-### Key Components:
-
+### System Components
 1. **FastAPI Application**: Handles API requests and job dispatching
 2. **Redis**: Broker for job queues
 3. **Redis Queue (RQ)**: Manages job queues and worker processes
 4. **SQLAlchemy**: ORM for database operations
 5. **PostgreSQL**: Database for storing job statuses and results
 6. **Docker**: Containerization for easy deployment and scaling
+
+### System Diagram
+
+```mermaid
+%%{init: {'theme': 'dark', 'themeVariables': { 'primaryColor': '#1E88E5', 'primaryTextColor': '#FFFFFF', 'primaryBorderColor': '#FFFFFF', 'lineColor': '#FFFFFF', 'secondaryColor': '#FFC107', 'tertiaryColor': '#4CAF50', 'quaternaryColor': '#FF5722'}}}%%
+flowchart TD
+    F[Scheduler] -->|1. Trigger Scheduled Jobs| A[FastAPI App]
+    A -->|2. Dispatch Jobs| B[(Redis)]
+    A -->|3. Create Job Record| D[(PostgreSQL)]
+    
+    B -->|4. Fetch Jobs| C[RQ Workers]
+    C -->|5. Execute Job's Perform Method| C
+    C -->|6. Update Job Status| D
+    
+    classDef default fill:#4CAF50,stroke:#FFFFFF,stroke-width:2px,color:#FFFFFF;
+    classDef database fill:#1E88E5,stroke:#FFFFFF,stroke-width:2px,color:#FFFFFF;
+    classDef redis fill:#FF5722,stroke:#FFFFFF,stroke-width:2px,color:#FFFFFF;
+    classDef scheduler fill:#9C27B0,stroke:#FFFFFF,stroke-width:2px,color:#FFFFFF;
+    
+    class A,C default;
+    class D database;
+    class B redis;
+    class F scheduler;
+
+    linkStyle default stroke:#FFFFFF,stroke-width:2px;
+```
 
 ### `BaseJob` Class:
 
@@ -63,46 +97,45 @@ class TruncateTable(BaseJob):
 TruncateTable.dispatch(table="auth.users", queue="low")
 ```
 
+### Job Recovery on System Startup
+To ensure job persistence and system reliability, our application implements a job recovery mechanism that runs during system startup. This process addresses scenarios where jobs might have been lost due to system failures or Redis downtime.
 
-## System Diagram
+#### Recovery Process
 
-```mermaid
-%%{init: {'theme': 'dark', 'themeVariables': { 'primaryColor': '#1E88E5', 'primaryTextColor': '#FFFFFF', 'primaryBorderColor': '#FFFFFF', 'lineColor': '#FFFFFF', 'secondaryColor': '#FFC107', 'tertiaryColor': '#4CAF50', 'quaternaryColor': '#FF5722'}}}%%
-flowchart TD
-    F[Scheduler] -->|1. Trigger Scheduled Jobs| A[FastAPI App]
-    A -->|2. Dispatch Jobs| B[(Redis)]
-    A -->|3. Create Job Record| D[(PostgreSQL)]
-    
-    B -->|4. Fetch Jobs| C[RQ Workers]
-    C -->|5. Execute Job's Perform Method| C
-    C -->|6. Update Job Status| D
-    
-    classDef default fill:#4CAF50,stroke:#FFFFFF,stroke-width:2px,color:#FFFFFF;
-    classDef database fill:#1E88E5,stroke:#FFFFFF,stroke-width:2px,color:#FFFFFF;
-    classDef redis fill:#FF5722,stroke:#FFFFFF,stroke-width:2px,color:#FFFFFF;
-    classDef scheduler fill:#9C27B0,stroke:#FFFFFF,stroke-width:2px,color:#FFFFFF;
-    
-    class A,C default;
-    class D database;
-    class B redis;
-    class F scheduler;
+1. On application startup, the system queries the database for jobs that were in **'queued'** or **'started'** status within the last 24 hours.
+2. For each of these jobs, the system checks if they exist in the Redis queue.
+3. If a job is not found in Redis, it is re-queued, ensuring that no jobs are lost due to system interruptions.
+4. Jobs that already exist in Redis are left untouched to avoid duplication.
 
-    linkStyle default stroke:#FFFFFF,stroke-width:2px;
+This recovery mechanism ensures that all jobs are accounted for, even in the event of unexpected system shutdowns or Redis failures, maintaining the integrity and reliability of our job processing system.
+
+### Manual Job Retry
+
+Our system provides a Command Line Interface (CLI) for manually retrying failed jobs. This feature is particularly useful for addressing jobs that have failed due to temporary issues or for reprocessing jobs after fixing underlying problems.
+
+#### Viewing Failed Jobs
+To view all failed jobs, use the following CLI command:
+```bash
+python3 src/cli.py list-failed-jobs
 ```
 
-## System Guarantees
+#### Using the Retry Command
+To retry jobs, use the following CLI command:
+```bash
+python3 src/cli.py retry-job [OPTIONS]
+```
 
-Our asynchronous job processing system provides the following guarantees:
+1️⃣ Retry a specific job:
+```bash
+python3 src/cli.py retry-job --job-id <job_id>
+```
 
-1. **Job Queueing**: Jobs are queued in Redis for processing. Note that if Redis goes down, queued jobs that haven't been processed will be lost.
-2. **Job Ordering**: Jobs are processed based on the queue order. Jobs within the same queue are processed in the order they were enqueued.
-3. **Job Status Persistence**: All job statuses are persisted in the PostgreSQL database, ensuring this information survives system restarts.
-4. **Retry Mechanism**: Failed jobs are automatically retried based on the configured retry policy.
-5. **Job Status Tracking**: The status of each job (queued, started, completed, failed) is tracked and can be queried.
-6. **Result Persistence**: Job results or errors are stored in the database for debugging and analysis.
-7. **Scalability**: The system can be easily scaled by adding more worker processes or nodes.
+2️⃣ Retry all failed jobs:
+```bash
+python3 src/cli.py retry-job --all
+```
 
-It's important to note that this system does not guarantee exactly-once execution. In cases of worker failure, a job might be executed more than once. If exactly-once execution is critical for your use case, additional application-level checks should be implemented.
+---
 
 ## How to Run
 
@@ -111,13 +144,23 @@ It's important to note that this system does not guarantee exactly-once executio
    ```
    gh repo clone adimyth/async-job-processing-using-redis-queues
    ```
-3. Build and start the Docker containers:
+3. Start the Redis & Postgres Containers:
    ```
-   docker-compose up --build -d
+   docker-compose up -d redis db
    ```
+4. Build and start the application
+   ```
+   docker-compose up --build -d api worker
+   ```
+5. Start the scheduler
+    ```
+    docker-compose up --build -d scheduler
+    ```
 
 This will start the FastAPI application, Redis, PostgreSQL, Scheduler and the Worker processes.
 
+
+---
 
 ## Verification
 The scheduler currently invokes the `/create-jobs` endpoint in the FastAPI application to create new jobs every minute. I have created a few sample jobs & added them to different priority queues to demonstrate the system's functionality.
@@ -244,7 +287,10 @@ You can check the status of each job by querying the `/jobs/{job_id}` endpoint:
 curl -X GET "http://localhost:8000/job-status/8ad8d791-6d82-4794-ab6c-7a2305f73b90" -H  "accept: application/json"
 ```
 
-## Using for Cron Jobs and ETLs
+---
+
+## Usage
+### Using for Cron Jobs and ETLs
 
 This system is well-suited for running ETL (Extract, Transform, Load) jobs and other periodic tasks:
 
@@ -271,7 +317,7 @@ def nightly_data_import():
 
 This setup allows you to manage complex ETL workflows with features like retries, status tracking, and scalable execution.
 
-## Additional Use Cases
+### Additional Use Cases
 1. Nightly Database Cleanup:
    1. Truncating temporary tables to free up space
    2. Archiving old data to maintain optimal database performance
