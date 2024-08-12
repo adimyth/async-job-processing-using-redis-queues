@@ -146,15 +146,15 @@ python3 src/cli.py retry-job --all
    ```
 3. Start the Redis & Postgres Containers:
    ```
-   docker-compose up -d redis db
+   docker compose up -d redis db
    ```
 4. Build and start the application
    ```
-   docker-compose up --build -d api worker
+   docker compose up --build -d api worker
    ```
 5. Start the scheduler
     ```
-    docker-compose up --build -d scheduler
+    docker compose up --build -d scheduler
     ```
 
 This will start the FastAPI application, Redis, PostgreSQL, Scheduler and the Worker processes.
@@ -261,31 +261,25 @@ worker  |
 The job status and results are stored in the `job` table in the PostgreSQL database.
 
 ✅ Successful Case:
-| id                                   | payload                                                                                                              | status    | result                                | error | traceback | retry_count | next_retry_time | created_at                 | updated_at                 |
-| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------- | --------- | ------------------------------------- | ----- | --------- | ----------- | --------------- | -------------------------- | -------------------------- |
-| 11e8ae78-026c-44f8-b7e0-2eb43d306bb7 | "{\"sql_path\": \"users.sql\"}"                                                                                      | completed | None                                  |       |           | 0           |                 | 2024-08-09 17:33:00.58041  | 2024-08-09 17:33:00.883442 |
-| 39cbaf4f-c1ce-4655-a3df-1d7dab60f8f6 | "{\"sql_path\": \"users.sql\"}"                                                                                      | completed | None                                  |       |           | 0           |                 | 2024-08-09 17:29:00.586785 | 2024-08-09 17:29:00.85107  |
-| db590a64-3dcc-4cb1-a6be-606713fc24c4 | "{\"sql_path\": \"users.sql\"}"                                                                                      | completed | None                                  |       |           | 0           |                 | 2024-08-09 17:31:00.568113 | 2024-08-09 17:31:00.857997 |
-| acdc5b23-b077-4f02-9a99-648500e8d447 | "{\"duration\": 10}"                                                                                                 | completed | Slow query completed after 10 seconds |       |           | 0           |                 | 2024-08-09 17:29:00.592025 | 2024-08-09 17:29:11.031892 |
-| d4ca38aa-216c-4e98-abe0-ab3e0d0ba969 | "{\"sql_path\": \"users.sql\"}"                                                                                      | completed | None                                  |       |           | 0           |                 | 2024-08-09 17:32:00.56487  | 2024-08-09 17:32:00.82806  |
-| 7691f393-b027-4fd8-a6f8-72216f898f0c | "{\"table\": \"auth.users\", \"group_by\": \"department\", \"sort_by\": \"total_salary\", \"sort_order\": \"desc\"}" | completed | Aggregation complete. 5 groups found. |       |           | 0           |                 | 2024-08-09 17:29:00.59469  | 2024-08-09 17:29:11.22892  |
+| id                                   | job_class                            | payload                                                                                                                                     | status    | result                                | error | traceback | retry_count | created_at                 | updated_at                 |
+| ------------------------------------ | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- | --------- | ------------------------------------- | ----- | --------- | ----------- | -------------------------- | -------------------------- |
+| 7750306d-0123-4766-af9a-d631b97733a4 | src.jobs.populate.PopulateRecords    | "{\"sql_path\": \"users.sql\", \"queue\": \"high\"}"                                                                                        | completed | None                                  |       |           | 0           | 2024-08-12 13:31:38.608442 | 2024-08-12 13:31:38.953813 |
+| 428bbe15-0aec-4509-97fd-342dcf08f252 | src.jobs.slow_query.SlowQuery        | "{\"duration\": 10, \"queue\": \"medium\"}"                                                                                                 | completed | Slow query completed after 10 seconds |       |           | 0           | 2024-08-12 13:31:38.616553 | 2024-08-12 13:31:49.182074 |
+| 8841b02f-3798-4712-87db-130402bd215d | src.jobs.aggregation.DataAggregation | "{\"table\": \"auth.users\", \"group_by\": \"department\", \"sort_by\": \"total_salary\", \"sort_order\": \"desc\", \"queue\": \"medium\"}" | completed | Aggregation complete. 5 groups found. |       |           | 0           | 2024-08-12 13:31:38.618902 | 2024-08-12 13:31:49.503992 |
+| ff04959c-03f5-4f9c-a737-ae931140eb64 | src.jobs.truncate.TruncateTable      | "{\"table\": \"auth.users\", \"queue\": \"medium\"}"                                                                                        | completed | None                                  |       |           | 0           | 2024-08-12 13:31:38.622604 | 2024-08-12 13:31:49.696385 |
+| 17553277-fe91-4298-8668-95455f32d2fa | src.jobs.drop.DropTable              | "{\"table\": \"auth.users\", \"queue\": \"low\"}"                                                                                           | completed | None                                  |       |           | 0           | 2024-08-12 13:31:38.625373 | 2024-08-12 13:31:49.867999 |
+| 44329870-ec56-4d71-902c-554171374891 | src.jobs.fibonacci.Fibonacci         | "{\"n\": 10, \"queue\": \"low\"}"                                                                                                           | completed | 55                                    |       |           | 0           | 2024-08-12 13:31:38.631969 | 2024-08-12 13:31:50.053559 |
 
 
 ❌ Failed Case:
 
-| id                                   | payload | status | result | error                      | traceback                                                                                 | retry_count | next_retry_time | created_at                 | updated_at                 |
-| ------------------------------------ | ------- | ------ | ------ | -------------------------- | ----------------------------------------------------------------------------------------- | ----------- | --------------- | -------------------------- | -------------------------- |
-| c4ae4d85-be49-4c2b-bb10-775ea667e338 | "{}     | failed |        | This is a custom exception | Traceback (most recent call last): File "/app/src/jobs/base.py", line 50, in perform .... | 3           |                 | 2024-08-09 19:13:00.589617 | 2024-08-09 19:19:12.802398 |
+| id                                   | job_class                    | payload                | status | result | error                      | traceback                               | retry_count | created_at                 | updated_at                 |
+| ------------------------------------ | ---------------------------- | ---------------------- | ------ | ------ | -------------------------- | --------------------------------------- | ----------- | -------------------------- | -------------------------- |
+| ed35524e-ae93-4236-bb8a-67236844c32d | src.jobs.exception.FailedJob | "{\"queue\": \"low\"}" | failed |        | This is a custom exception | Traceback (most recent call last): .... | 4           | 2024-08-12 13:36:21.948851 | 2024-08-12 13:57:23.575445 |
 
 > [!NOTE]
 > Since I have set max retries to 3 with an exponential backoff strategy, the job will be retried 3 times with increasing intervals between retries. After the third attempt, the job will be marked as failed.
 
-### Job Status API
-You can check the status of each job by querying the `/jobs/{job_id}` endpoint:
-
-```bash
-curl -X GET "http://localhost:8000/job-status/8ad8d791-6d82-4794-ab6c-7a2305f73b90" -H  "accept: application/json"
-```
 
 ---
 

@@ -1,3 +1,4 @@
+import importlib
 import json
 from datetime import datetime, timedelta
 
@@ -39,8 +40,13 @@ def recover_jobs():
                     rq_job = RQJob.fetch(job.id, connection=redis_conn)
 
                     if rq_job is None:
+                        # Dynamically import the job class
+                        module_name, class_name = job.job_class.rsplit(".", 1)
+                        module = importlib.import_module(module_name)
+                        job_class = getattr(module, class_name)
+
                         # Requeue the job using the original job ID.
-                        _ = queue.enqueue(BaseJob.perform, **payload, job_id=job.id)
+                        _ = queue.enqueue(job_class.perform, **payload, job_id=job.id)
 
                         # Set status=queued & updated_at for the existing job in the database
                         job.status = JobStatus.queued

@@ -1,3 +1,4 @@
+import importlib
 import json
 from typing import List
 
@@ -66,8 +67,13 @@ def retry_single_job(job_id: str, session: Session, redis_conn: str):
         queue_name = payload.get("queue", settings.JOB_DEFAULT_QUEUE)
         queue = Queue(queue_name, connection=redis_conn)
 
+        # Dynamically import the job class
+        module_name, class_name = job.job_class.rsplit(".", 1)
+        module = importlib.import_module(module_name)
+        job_class = getattr(module, class_name)
+
         # Dispatch a new job with the same payload & log the retry attempt
-        new_job = BaseJob.dispatch(**json.loads(job.payload))
+        new_job = job_class.dispatch(**json.loads(job.payload))
         click.echo(f"Job {job_id} has been requeued with new ID: {new_job.id}")
 
         # Delete the failed job

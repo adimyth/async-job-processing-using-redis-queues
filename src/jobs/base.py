@@ -10,7 +10,6 @@ from sqlalchemy.sql import select, update
 from src.db.session import get_db
 from src.models.model import Jobs
 from src.schemas.common import JobStatus
-from src.schemas.response import JobStatusResponse
 from src.settings import settings
 
 
@@ -89,18 +88,10 @@ class BaseJob:
         # Job Queued: store status & payload
         with get_db() as session:
             new_job = Jobs(
-                id=job.id, status=JobStatus.queued, payload=json.dumps(kwargs)
+                id=job.id,
+                job_class=f"{cls.__module__}.{cls.__name__}",  # Store fully qualified class name
+                status=JobStatus.queued,
+                payload=json.dumps(kwargs),
             )
             session.add(new_job)
         return job
-
-    @classmethod
-    def get_job_status(cls, job_id):
-        with get_db() as session:
-            stmt = select(Jobs).where(Jobs.id == job_id)
-            job = session.execute(stmt).scalar_one_or_none()
-
-            if not job:
-                return None
-
-            return JobStatusResponse(**job)

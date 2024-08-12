@@ -1,7 +1,6 @@
 import asyncio
 
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
 
 from src.db.base_class import Base
 from src.db.session import engine
@@ -13,7 +12,6 @@ from src.jobs.populate import PopulateRecords
 from src.jobs.slow_query import SlowQuery
 from src.jobs.truncate import TruncateTable
 from src.models.model import Jobs
-from src.schemas.response import JobStatusResponse
 from src.utils import recover_jobs
 
 app = FastAPI()
@@ -49,11 +47,3 @@ async def create_jobs():
     # low priority jobs
     Fibonacci.dispatch(n=10, queue="low")
     FailedJob.dispatch(queue="low")
-
-
-@app.get("/job-status/{job_id}", response_model=JobStatusResponse)
-async def get_job_status(job_id: str):
-    response = TruncateTable.get_job_status(job_id)
-    if not response:
-        return JSONResponse(status_code=400, content={"msg": "Invalid job ID"})
-    return JSONResponse(status_code=200, content=response)
